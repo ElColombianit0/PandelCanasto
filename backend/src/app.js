@@ -17,6 +17,7 @@ import recetasRoutes from "./routes/recetas.routes.js";
 import reportesRoutes from "./routes/reportes.routes.js";
 import cajaRoutes from "./routes/caja.routes.js";
 import bajasInventarioRoutes from "./routes/bajasInventario.routes.js";
+import { probarConexionDB } from "./config/db.js";
 
 const app = express();
 
@@ -38,6 +39,23 @@ app.get("/api", (req, res) => {
     ok: true,
     message: "API Pan del Canasto funcionando",
   });
+});
+
+app.get("/api/health/db", async (req, res) => {
+  try {
+    const db = await probarConexionDB();
+    res.json({
+      ok: true,
+      message: "PostgreSQL conectado correctamente",
+      db_time: db.now,
+    });
+  } catch (error) {
+    console.error("Error verificando PostgreSQL:", error);
+    res.status(500).json({
+      ok: false,
+      message: "No se pudo conectar a PostgreSQL",
+    });
+  }
 });
 
 app.use("/api/auth", authRoutes);

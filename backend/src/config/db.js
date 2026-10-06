@@ -6,7 +6,7 @@ dotenv.config();
 const { Pool } = pg;
 
 export const pool = new Pool({
-  host: "127.0.0.1",
+  host: process.env.DB_HOST || "127.0.0.1",
   port: Number(process.env.DB_PORT),
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
