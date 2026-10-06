@@ -1,0 +1,175 @@
+.dashboard-main:has(.caja-page) {
+  min-width: 0;
+}
+
+.caja-form fieldset {
+  border: 0;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 18px;
+}
+
+.caja-form .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.caja-form-wide {
+  grid-column: 1 / -1;
+}
+
+.caja-form textarea {
+  min-height: 70px;
+}
+
+.admin-form .caja-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-form .caja-checkbox input {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+
+.caja-etiquetas summary,
+.caja-general > summary {
+  cursor: pointer;
+  color: var(--brown);
+  font-weight: 800;
+}
+
+.caja-etiqueta-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.caja-etiqueta-form label {
+  flex: 1 1 180px;
+}
+
+.caja-etiqueta-form button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.caja-history,
+.caja-general {
+  min-width: 0;
+  padding: 24px 0;
+  margin-top: 26px;
+  border-top: 1px solid var(--border);
+}
+
+.caja-general .caja-history {
+  margin-top: 0;
+  border-top: 0;
+  padding-bottom: 0;
+}
+
+.caja-general > summary {
+  font-size: 18px;
+}
+
+.caja-general > summary svg {
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+.caja-history h2 {
+  color: var(--brown);
+  margin-top: 0;
+  font-size: 22px;
+}
+
+.caja-history h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.caja-general-notice {
+  color: var(--gray);
+  font-size: 14px;
+}
+
+.caja-history .caja-history-filters {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 22px;
+}
+
+.caja-history-filters label,
+.caja-history-filters input,
+.caja-history-filters select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.caja-history-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 32px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.caja-history-totals div {
+  display: grid;
+  gap: 5px;
+}
+
+.caja-history-totals span {
+  font-size: 13px;
+  color: var(--gray);
+}
+
+.caja-history-totals strong {
+  font-size: 19px;
+  color: var(--brown);
+}
+
+.caja-comentario {
+  min-width: 150px;
+  max-width: 300px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.caja-date,
+.caja-amount {
+  white-space: nowrap;
+}
+
+.caja-row-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.caja-row-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 8px;
+  border-radius: 6px;
+}
+
+@media (max-width: 560px) {
+  .caja-form .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .caja-history .caja-history-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+}

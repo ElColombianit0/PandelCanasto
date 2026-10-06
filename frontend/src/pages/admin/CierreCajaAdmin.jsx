@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Archive, Plus } from "lucide-react";
 import api from "../../api/api.js";
+import HistorialGastosCaja from "../../components/HistorialGastosCaja.jsx";
+import "../../styles/caja.css";
 
 function fechaBogota() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+}
+
+function gastoVacio() {
+  return { descripcion: "", monto: "", metodo_salida: "EFECTIVO", etiqueta_id: "", comentario: "", reintegrado: false };
 }
 
 export default function CierreCajaAdmin() {
@@ -16,29 +23,64 @@ export default function CierreCajaAdmin() {
   const [mensaje, setMensaje] = useState("");
   const [printMode, setPrintMode] = useState("cierre");
   const [gastoImprimir, setGastoImprimir] = useState(null);
-  const [gasto, setGasto] = useState({
-    descripcion: "",
-    monto: "",
-    metodo_salida: "EFECTIVO",
-  });
+  const [gasto, setGasto] = useState(gastoVacio);
   const [editandoGastoId, setEditandoGastoId] = useState(null);
+  const [etiquetas, setEtiquetas] = useState([]);
+  const [nuevaEtiqueta, setNuevaEtiqueta] = useState("");
+  const [guardandoEtiqueta, setGuardandoEtiqueta] = useState(false);
+  const [guardandoGasto, setGuardandoGasto] = useState(false);
+  const [cargandoCaja, setCargandoCaja] = useState(true);
+  const [revisionHistorial, setRevisionHistorial] = useState(0);
+  const ultimaCarga = useRef(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api.get("/caja/etiquetas", { signal: controller.signal })
+      .then(({ data }) => setEtiquetas(data.etiquetas || []))
+      .catch(() => {
+        if (!controller.signal.aborted) setMensaje("No se pudieron cargar las etiquetas.");
+      });
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     cargarCaja();
   }, [fecha]);
 
   async function cargarCaja() {
+    const carga = ++ultimaCarga.current;
+    setCargandoCaja(true);
     try {
       const { data } = await api.get(`/caja?fecha=${fecha}`);
-      setData(data);
+      if (carga === ultimaCarga.current) setData(data);
     } catch {
-      setMensaje("No se pudo cargar el cierre de caja.");
+      if (carga === ultimaCarga.current) setMensaje("No se pudo cargar el cierre de caja.");
+    } finally {
+      if (carga === ultimaCarga.current) setCargandoCaja(false);
+    }
+  }
+
+  async function crearEtiqueta() {
+    if (!nuevaEtiqueta.trim() || guardandoEtiqueta) return;
+    setGuardandoEtiqueta(true);
+    try {
+      const { data } = await api.post("/caja/etiquetas", { nombre: nuevaEtiqueta.trim() });
+      setEtiquetas((items) => [...items, data.etiqueta].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")));
+      setGasto((actual) => ({ ...actual, etiqueta_id: String(data.etiqueta.id) }));
+      setNuevaEtiqueta("");
+      setMensaje("Etiqueta creada.");
+    } catch (error) {
+      setMensaje(error.response?.data?.message || "No se pudo crear la etiqueta.");
+    } finally {
+      setGuardandoEtiqueta(false);
     }
   }
 
   async function guardarGasto(e) {
     e.preventDefault();
+    if (guardandoGasto || guardandoEtiqueta) return;
     setMensaje("");
+    setGuardandoGasto(true);
 
     try {
       if (editandoGastoId) {
@@ -46,21 +88,28 @@ export default function CierreCajaAdmin() {
       } else {
         await api.post("/caja/gastos", { ...gasto, fecha });
       }
-      setGasto({ descripcion: "", monto: "", metodo_salida: "EFECTIVO" });
+      setGasto(gastoVacio());
       setEditandoGastoId(null);
+      setRevisionHistorial((revision) => revision + 1);
       await cargarCaja();
       setMensaje(editandoGastoId ? "Gasto actualizado." : "Gasto registrado.");
     } catch (error) {
       setMensaje(error.response?.data?.message || "No se pudo registrar el gasto.");
+    } finally {
+      setGuardandoGasto(false);
     }
   }
 
   function editarGasto(item) {
+    setFecha(String(item.fecha).slice(0, 10));
     setEditandoGastoId(item.id);
     setGasto({
       descripcion: item.descripcion || "",
       monto: item.monto || "",
       metodo_salida: item.metodo_salida || "EFECTIVO",
+      etiqueta_id: item.etiqueta_id == null ? "" : String(item.etiqueta_id),
+      comentario: item.comentario || "",
+      reintegrado: Boolean(item.reintegrado),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -72,8 +121,9 @@ export default function CierreCajaAdmin() {
       await api.delete(`/caja/gastos/${id}`);
       if (String(editandoGastoId) === String(id)) {
         setEditandoGastoId(null);
-        setGasto({ descripcion: "", monto: "", metodo_salida: "EFECTIVO" });
+        setGasto(gastoVacio());
       }
+      setRevisionHistorial((revision) => revision + 1);
       await cargarCaja();
       setMensaje("Gasto eliminado.");
     } catch (error) {
@@ -138,8 +188,8 @@ export default function CierreCajaAdmin() {
   const moneda = (valor) => `$${Number(valor || 0).toLocaleString("es-CO")}`;
 
   return (
-    <div>
-      {mensaje && <div className="info-message">{mensaje}</div>}
+    <div className="caja-page">
+      {mensaje && <div className="info-message no-print" role="status">{mensaje}</div>}
 
       <div className="panel-card no-print">
         <h2>Cierre de caja</h2>
@@ -147,10 +197,16 @@ export default function CierreCajaAdmin() {
         <div className="sales-filter-bar">
           <label>
             Dia
-            <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+            <input type="date" value={fecha} required onChange={(e) => {
+              if (!e.target.value) return;
+              setFecha(e.target.value);
+              setEditandoGastoId(null);
+              setGasto(gastoVacio());
+            }} />
           </label>
 
-          <button className="btn btn-primary" type="button" onClick={imprimirCierre}>
+          <button className="btn btn-primary" type="button" onClick={imprimirCierre}
+            disabled={cargandoCaja || data.fecha !== fecha || guardandoGasto}>
             Imprimir cierre
           </button>
         </div>
@@ -197,7 +253,8 @@ export default function CierreCajaAdmin() {
       <div className="panel-card no-print">
         <h2>{editandoGastoId ? "Editar gasto" : "Registrar gasto"}</h2>
 
-        <form className="admin-form" onSubmit={guardarGasto}>
+        <form className="admin-form caja-form" onSubmit={guardarGasto}>
+          <fieldset disabled={guardandoGasto}>
           <div className="form-grid">
             <label>
               Descripcion
@@ -205,6 +262,7 @@ export default function CierreCajaAdmin() {
                 value={gasto.descripcion}
                 onChange={(e) => setGasto({ ...gasto, descripcion: e.target.value })}
                 placeholder="Jabon para cocina"
+                maxLength={1000}
                 required
               />
             </label>
@@ -213,7 +271,8 @@ export default function CierreCajaAdmin() {
               Monto
               <input
                 type="number"
-                min="0"
+                min="0.01"
+                step="0.01"
                 value={gasto.monto}
                 onChange={(e) => setGasto({ ...gasto, monto: e.target.value })}
                 required
@@ -224,6 +283,7 @@ export default function CierreCajaAdmin() {
               Sale de
               <select
                 className="nice-select"
+                aria-label="Sale de"
                 value={gasto.metodo_salida}
                 onChange={(e) => setGasto({ ...gasto, metodo_salida: e.target.value })}
               >
@@ -231,11 +291,45 @@ export default function CierreCajaAdmin() {
                 <option value="TRANSFERENCIA">Transferencia</option>
               </select>
             </label>
+            <label>
+              Etiqueta
+              <select aria-label="Etiqueta" value={gasto.etiqueta_id} onChange={(e) => setGasto({ ...gasto, etiqueta_id: e.target.value })}>
+                <option value="">Sin etiqueta</option>
+                {etiquetas.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
+              </select>
+            </label>
+            <label className="caja-form-wide">
+              Comentarios
+              <textarea rows={2} maxLength={2000} value={gasto.comentario}
+                onChange={(e) => setGasto({ ...gasto, comentario: e.target.value })}
+                placeholder="Ejemplo: ya lo pago" />
+            </label>
           </div>
 
+          <label className="caja-checkbox" title="Marca informativa: conserva el gasto del cierre y no registra un ingreso.">
+            <input type="checkbox" checked={gasto.reintegrado}
+              onChange={(e) => setGasto({ ...gasto, reintegrado: e.target.checked })} />
+            Reintegrado
+          </label>
+
+          <details className="caja-etiquetas">
+            <summary>Crear etiqueta</summary>
+            <div className="caja-etiqueta-form">
+              <label>Nueva etiqueta
+                <input value={nuevaEtiqueta} maxLength={80} placeholder="Paola"
+                  onChange={(e) => setNuevaEtiqueta(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); crearEtiqueta(); } }} />
+              </label>
+              <button type="button" className="btn btn-outline" onClick={crearEtiqueta}
+                disabled={guardandoEtiqueta || !nuevaEtiqueta.trim()}>
+                <Plus size={16} /> {guardandoEtiqueta ? "Guardando..." : "Crear"}
+              </button>
+            </div>
+          </details>
+
           <div className="form-actions">
-            <button className="btn btn-primary">
-              {editandoGastoId ? "Actualizar gasto" : "Guardar gasto"}
+            <button className="btn btn-primary" disabled={guardandoEtiqueta}>
+              {guardandoGasto ? "Guardando..." : editandoGastoId ? "Actualizar gasto" : "Guardar gasto"}
             </button>
             {editandoGastoId && (
               <button
@@ -243,13 +337,14 @@ export default function CierreCajaAdmin() {
                 className="btn btn-outline"
                 onClick={() => {
                   setEditandoGastoId(null);
-                  setGasto({ descripcion: "", monto: "", metodo_salida: "EFECTIVO" });
+                  setGasto(gastoVacio());
                 }}
               >
                 Cancelar
               </button>
             )}
           </div>
+          </fieldset>
         </form>
       </div>
 
@@ -262,6 +357,9 @@ export default function CierreCajaAdmin() {
                 <th>Descripcion</th>
                 <th>Monto</th>
                 <th>Sale de</th>
+                <th>Etiqueta</th>
+                <th>Comentarios</th>
+                <th>Reintegro</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -271,6 +369,9 @@ export default function CierreCajaAdmin() {
                   <td>{item.descripcion}</td>
                   <td>{moneda(item.monto)}</td>
                   <td>{item.metodo_salida}</td>
+                  <td>{item.etiqueta_nombre || "Sin etiqueta"}</td>
+                  <td className="caja-comentario">{item.comentario || "-"}</td>
+                  <td>{item.reintegrado ? "Reintegrado" : "Sin reintegrar"}</td>
                   <td>
                     <button className="mini-button" onClick={() => editarGasto(item)}>
                       Editar
@@ -286,13 +387,21 @@ export default function CierreCajaAdmin() {
               ))}
               {(data.gastos || []).length === 0 && (
                 <tr>
-                  <td colSpan="4">No hay gastos registrados.</td>
+                  <td colSpan="7">No hay gastos registrados.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      <HistorialGastosCaja etiquetas={etiquetas} revision={revisionHistorial}
+        onEditar={editarGasto} onEliminar={eliminarGasto} onImprimir={imprimirGasto} />
+
+      <details className="caja-general no-print">
+        <summary><Archive size={18} /> Caja general</summary>
+        <HistorialGastosCaja general etiquetas={etiquetas} />
+      </details>
 
       <div className="panel-card no-print">
         <h2>Productos vendidos del dia</h2>
@@ -344,6 +453,7 @@ export default function CierreCajaAdmin() {
           {(data.gastos || []).map((item) => (
             <p className="print-expense-line" key={item.id}>
               {item.descripcion}: {moneda(item.monto)} ({item.metodo_salida})
+              {item.etiqueta_nombre && <> - {item.etiqueta_nombre}</>}
             </p>
           ))}
           <div className="print-divider" />
@@ -363,12 +473,15 @@ export default function CierreCajaAdmin() {
         <div className="print-receipt">
           <h3>Pan del Canasto</h3>
           <p>Recibo de gasto</p>
-          <p>Fecha: {fecha}</p>
+          <p>Fecha: {String(gastoImprimir.fecha || fecha).slice(0, 10)}</p>
           <div className="print-divider" />
           <div className="print-line"><span>Descripcion</span><span>{gastoImprimir.descripcion}</span></div>
           <div className="print-line"><span>Monto</span><span>{moneda(gastoImprimir.monto)}</span></div>
           <div className="print-line"><span>Sale de</span><span>{gastoImprimir.metodo_salida}</span></div>
           <div className="print-line"><span>Registrado por</span><span>{gastoImprimir.usuario_nombre || "Admin"}</span></div>
+          {gastoImprimir.etiqueta_nombre && <div className="print-line"><span>Etiqueta</span><span>{gastoImprimir.etiqueta_nombre}</span></div>}
+          {gastoImprimir.reintegrado && <p className="print-expense-line">Reintegrado</p>}
+          {gastoImprimir.comentario && <p className="print-expense-line">{gastoImprimir.comentario}</p>}
           <div className="print-divider" />
           <p className="receipt-signature">Firma recibido</p>
           <p>________________________</p>
