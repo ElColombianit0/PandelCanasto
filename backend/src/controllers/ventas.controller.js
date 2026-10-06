@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { prepararPago, guardarDesglose, desgloseVentaSQL, centavos } from "../utils/pagos.js";
 import { asegurarColumnasRecetas } from "../utils/recetasSchema.js";
 import { asegurarColumnasProductos } from "../utils/productosSchema.js";
 
@@ -236,7 +237,8 @@ export async function listarVentas(req, res) {
         f.tipo_factura,
         p.monto_recibido,
         p.cambio,
-        mp.nombre AS metodo_pago
+        mp.nombre AS metodo_pago,
+        ${desgloseVentaSQL} AS pagos_desglose
       FROM ventas v
       LEFT JOIN usuarios u ON u.id = v.usuario_id
       LEFT JOIN sucursales s ON s.id = COALESCE(v.sucursal_id, u.sucursal_id)
@@ -286,15 +288,14 @@ export async function listarVentas(req, res) {
     const resumenMetodosPago = await pool.query(
       `
       SELECT
-        mp.nombre AS metodo_pago,
-        COUNT(v.id) AS cantidad,
-        COALESCE(SUM(v.total), 0) AS total
+        vp.metodo_pago,
+        COUNT(DISTINCT v.id) AS cantidad,
+        COALESCE(SUM(vp.monto), 0) AS total
       FROM ventas v
       LEFT JOIN usuarios u ON u.id = v.usuario_id
-      LEFT JOIN pagos p ON p.id = v.pago_id
-      LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+      LEFT JOIN ventas_pagos_desglose vp ON vp.venta_id = v.id
       ${whereValidas}
-      GROUP BY mp.nombre
+      GROUP BY vp.metodo_pago
       ORDER BY total DESC
       `,
       valores,
@@ -357,7 +358,8 @@ export async function obtenerVenta(req, res) {
         f.cliente_email,
         p.monto_recibido,
         p.cambio,
-        mp.nombre AS metodo_pago
+        mp.nombre AS metodo_pago,
+        ${desgloseVentaSQL} AS pagos_desglose
       FROM ventas v
       LEFT JOIN usuarios u ON u.id = v.usuario_id
       LEFT JOIN facturas f ON f.venta_id = v.id
@@ -441,6 +443,7 @@ export async function actualizarDetalleVenta(req, res) {
       FROM ventas
       WHERE id = $1
       AND COALESCE(estado, 'VALIDA') != 'ANULADA'
+      FOR UPDATE
       `,
       [id],
     );
@@ -555,8 +558,21 @@ export async function actualizarDetalleVenta(req, res) {
 
     const subtotalNuevo = Number(subtotalResult.rows[0].subtotal || 0);
     const porcentaje = Number(venta.propina_porcentaje || 0);
-    const propinaValor = subtotalNuevo * (porcentaje / 100);
-    const totalNuevo = subtotalNuevo + propinaValor;
+    const propinaValor = Number((subtotalNuevo * (porcentaje / 100)).toFixed(2));
+    const totalNuevo = Number((subtotalNuevo + propinaValor).toFixed(2));
+    const { rows: [pagoActual] } = await client.query("SELECT * FROM pagos WHERE id = $1 FOR UPDATE", [venta.pago_id]);
+    const { rows: partesActuales } = await client.query("SELECT * FROM ventas_pagos_desglose WHERE venta_id = $1", [id]);
+    const eraMixto = partesActuales.length > 1;
+    const noEfectivo = partesActuales.filter((p) => !/efectivo/i.test(p.metodo_pago)).reduce((s, p) => s + Number(p.monto), 0);
+    const recibido = req.body.efectivo_recibido ?? Number((Number(pagoActual.monto_recibido || 0) - noEfectivo).toFixed(2));
+    const partesCorregidas = req.body.pagos_desglose || partesActuales;
+    if (eraMixto && totalNuevo > 0 && (!Array.isArray(partesCorregidas) || partesCorregidas.reduce((s, p) => s + centavos(p?.monto), 0) !== centavos(totalNuevo))) {
+      throw Object.assign(new Error("Actualiza el reparto del pago para que coincida con el total corregido."), { statusCode: 400 });
+    }
+    const pagoCorregido = totalNuevo > 0 ? await prepararPago(client, {
+      metodo: eraMixto ? (partesCorregidas.length === 1 ? partesCorregidas[0].metodo_pago_id : "MIXTO") : pagoActual.metodo_pago_id,
+      desglose: partesCorregidas, recibido, total: totalNuevo,
+    }) : { metodo_pago_id: pagoActual.metodo_pago_id, monto_recibido: Number(pagoActual.monto_recibido || 0), cambio: Math.max(recibido, 0), desglose: [] };
 
     await client.query(
       `
@@ -592,11 +608,14 @@ export async function actualizarDetalleVenta(req, res) {
         propina = $2,
         propina_valor = $2,
         total_pagado = $3,
-        cambio = GREATEST(monto_recibido - $3, 0)
+        cambio = $5,
+        monto_recibido = $6,
+        metodo_pago_id = $7
       WHERE id = $4
       `,
-      [subtotalNuevo, propinaValor, totalNuevo, venta.pago_id],
+      [subtotalNuevo, propinaValor, totalNuevo, venta.pago_id, pagoCorregido.cambio, pagoCorregido.monto_recibido, pagoCorregido.metodo_pago_id],
     );
+    await guardarDesglose(client, venta.pago_id, pagoCorregido.desglose);
 
     await client.query(
       `

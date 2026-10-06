@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { prepararPago, guardarDesglose } from "../utils/pagos.js";
 import { asegurarColumnasRecetas } from "../utils/recetasSchema.js";
 import { asegurarColumnasProductos } from "../utils/productosSchema.js";
 
@@ -578,6 +579,7 @@ export async function cobrarPedido(req, res) {
       metodo_pago_id,
       metodoPagoId,
       monto_recibido,
+      pagos_desglose,
       propina,
       factura_electronica,
       productos = [],
@@ -608,6 +610,7 @@ export async function cobrarPedido(req, res) {
       FROM pedidos
       WHERE id = $1
       AND estado = 'ABIERTO'
+      FOR UPDATE
       `,
       [pedido_id]
     );
@@ -708,53 +711,11 @@ export async function cobrarPedido(req, res) {
         ? Number(propina || 0)
         : Number(pedido.propina_porcentaje || 0);
 
-    const propinaValor = subtotal * (propinaPorcentaje / 100);
-    const total = subtotal + propinaValor;
-
-    const metodoPagoRes = await client.query(
-      `
-      SELECT nombre
-      FROM metodos_pago
-      WHERE id = $1
-      `,
-      [metodoPagoFinal],
-    );
-
-    const metodoPagoNombre = String(metodoPagoRes.rows[0]?.nombre || "")
-      .trim()
-      .toLowerCase();
-    const esEfectivo = metodoPagoNombre.includes("efectivo");
-
-    if (
-      esEfectivo &&
-      (monto_recibido === undefined ||
-        monto_recibido === null ||
-        monto_recibido === "")
-    ) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        ok: false,
-        message: "Debes ingresar el dinero recibido",
-      });
-    }
-
-    const montoRecibidoFinal =
-      esEfectivo && monto_recibido !== undefined && monto_recibido !== null && monto_recibido !== ""
-        ? Number(monto_recibido)
-        : total;
-
-    if (
-      !Number.isFinite(montoRecibidoFinal) ||
-      (esEfectivo && montoRecibidoFinal < total)
-    ) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        ok: false,
-        message: "El monto recibido no puede ser menor al total",
-      });
-    }
-
-    const cambio = esEfectivo ? Math.max(montoRecibidoFinal - total, 0) : 0;
+    const propinaValor = Number((subtotal * (propinaPorcentaje / 100)).toFixed(2));
+    const total = Number((subtotal + propinaValor).toFixed(2));
+    const pagoPreparado = await prepararPago(client, {
+      metodo: metodoPagoFinal, desglose: pagos_desglose, recibido: monto_recibido, total,
+    });
 
     const pago = await client.query(
       `
@@ -777,17 +738,21 @@ export async function cobrarPedido(req, res) {
       `,
       [
         pedido_id,
-        metodoPagoFinal,
+        pagoPreparado.metodo_pago_id,
         usuarioId,
         subtotal,
         propinaValor,
         propinaPorcentaje,
         propinaValor,
         total,
-        montoRecibidoFinal,
-        cambio,
+        pagoPreparado.monto_recibido,
+        pagoPreparado.cambio,
       ]
     );
+
+    await guardarDesglose(client, pago.rows[0].id, pagoPreparado.desglose);
+    pago.rows[0].pagos_desglose = pagoPreparado.desglose;
+    pago.rows[0].efectivo_recibido = pagoPreparado.efectivo_recibido;
 
     const venta = await client.query(
       `

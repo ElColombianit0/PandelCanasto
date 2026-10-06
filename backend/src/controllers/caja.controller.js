@@ -58,16 +58,15 @@ export async function obtenerCierreCaja(req, res) {
     const ventas = await pool.query(
       `
       SELECT
-        mp.nombre AS metodo_pago,
-        COUNT(v.id) AS cantidad,
-        COALESCE(SUM(v.total), 0) AS total
+        vp.metodo_pago,
+        COUNT(DISTINCT v.id) AS cantidad,
+        COALESCE(SUM(vp.monto), 0) AS total
       FROM ventas v
-      INNER JOIN pagos p ON p.id = v.pago_id
-      INNER JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+      INNER JOIN ventas_pagos_desglose vp ON vp.venta_id = v.id
       WHERE COALESCE(v.estado, 'VALIDA') != 'ANULADA'
       AND v.fecha_venta::date = $1::date
-      GROUP BY mp.nombre
-      ORDER BY mp.nombre
+      GROUP BY vp.metodo_pago
+      ORDER BY vp.metodo_pago
       `,
       [fecha],
     );

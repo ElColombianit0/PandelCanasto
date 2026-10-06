@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Plus } from "lucide-react";
+import { Archive, Plus, Printer, Pencil, Trash2, Wallet, ArrowLeftRight, CreditCard, CalendarDays, Tags } from "lucide-react";
 import api from "../../api/api.js";
 import HistorialGastosCaja from "../../components/HistorialGastosCaja.jsx";
 import "../../styles/caja.css";
@@ -31,6 +31,7 @@ export default function CierreCajaAdmin() {
   const [guardandoGasto, setGuardandoGasto] = useState(false);
   const [cargandoCaja, setCargandoCaja] = useState(true);
   const [revisionHistorial, setRevisionHistorial] = useState(0);
+  const [pestana, setPestana] = useState("diario");
   const ultimaCarga = useRef(0);
 
   useEffect(() => {
@@ -101,6 +102,7 @@ export default function CierreCajaAdmin() {
   }
 
   function editarGasto(item) {
+    setPestana("diario");
     setFecha(String(item.fecha).slice(0, 10));
     setEditandoGastoId(item.id);
     setGasto({
@@ -145,9 +147,8 @@ export default function CierreCajaAdmin() {
 
   function totalPorMetodo(nombre) {
     return Number(
-      (data.ventas || []).find((item) =>
-        String(item.metodo_pago || "").toLowerCase().includes(nombre),
-      )?.total || 0,
+      (data.ventas || []).filter((item) => String(item.metodo_pago || "").toLowerCase().includes(nombre))
+        .reduce((suma, item) => suma + Number(item.total || 0), 0),
     );
   }
 
@@ -189,69 +190,45 @@ export default function CierreCajaAdmin() {
 
   return (
     <div className="caja-page">
+      <header className="caja-header no-print"><div><span className="caja-eyebrow">Administracion</span><h2>Cierre de caja</h2></div>
+        <div className="caja-header-actions"><label>Dia<input type="date" aria-label="Dia del cierre" value={fecha} required onChange={(e) => {
+          if (!e.target.value) return;
+          setFecha(e.target.value); setEditandoGastoId(null); setGasto(gastoVacio());
+        }} /></label>
+        <button className="btn btn-primary" type="button" onClick={imprimirCierre} disabled={cargandoCaja || data.fecha !== fecha || guardandoGasto}>
+          <Printer size={17} /> Imprimir cierre
+        </button></div>
+      </header>
+      <div className="caja-tabs no-print" role="tablist" aria-label="Secciones de caja">
+        {[{ id: "diario", nombre: "Cierre diario", icono: CalendarDays }, { id: "historial", nombre: "Historial mensual", icono: Tags }, { id: "general", nombre: "Caja general", icono: Archive }].map(({ id, nombre, icono: Icono }, indice) =>
+          <button key={id} type="button" role="tab" id={`caja-tab-${id}`} tabIndex={pestana === id ? 0 : -1}
+            aria-selected={pestana === id} aria-controls={`caja-${id}`} onClick={() => setPestana(id)}
+            onKeyDown={(e) => {
+              const destinos = { ArrowRight: (indice + 1) % 3, ArrowLeft: (indice + 2) % 3, Home: 0, End: 2 };
+              if (!(e.key in destinos)) return;
+              e.preventDefault();
+              const siguiente = e.currentTarget.parentElement.children[destinos[e.key]];
+              siguiente.click(); siguiente.focus();
+            }}><Icono size={17} />{nombre}</button>)}
+      </div>
       {mensaje && <div className="info-message no-print" role="status">{mensaje}</div>}
 
-      <div className="panel-card no-print">
-        <h2>Cierre de caja</h2>
-
-        <div className="sales-filter-bar">
-          <label>
-            Dia
-            <input type="date" value={fecha} required onChange={(e) => {
-              if (!e.target.value) return;
-              setFecha(e.target.value);
-              setEditandoGastoId(null);
-              setGasto(gastoVacio());
-            }} />
-          </label>
-
-          <button className="btn btn-primary" type="button" onClick={imprimirCierre}
-            disabled={cargandoCaja || data.fecha !== fecha || guardandoGasto}>
-            Imprimir cierre
-          </button>
+      <div id="caja-diario" role="tabpanel" aria-labelledby="caja-tab-diario" hidden={pestana !== "diario"} className="no-print">
+        <div className="caja-balances payment-summary-grid" aria-busy={cargandoCaja}>
+          {[
+            { nombre: "Efectivo", icono: Wallet, color: "cash", ventas: resumen.efectivo, gasto: resumen.gastosEfectivo, neto: resumen.efectivoNeto, concepto: "Gastos" },
+            { nombre: "Transferencias", icono: ArrowLeftRight, color: "transfer", ventas: resumen.transferencia, gasto: resumen.gastosTransferencia, neto: resumen.transferenciaNeta, concepto: "Gastos" },
+            { nombre: "Tarjeta", icono: CreditCard, color: "card", ventas: resumen.tarjeta, gasto: resumen.comisionTarjeta, neto: resumen.tarjetaNeta, concepto: "Comision 4,89%" },
+          ].map(({ nombre, icono: Icono, color, ventas, gasto, neto, concepto }) => <div className={`caja-balance ${color}`} key={nombre}>
+            <h3><Icono size={18} />{nombre}</h3><strong>{cargandoCaja ? "..." : moneda(neto)}</strong><small>Disponible neto</small>
+            <dl><div><dt>Ventas</dt><dd>{moneda(ventas)}</dd></div><div><dt>{concepto}</dt><dd>{moneda(gasto)}</dd></div></dl>
+          </div>)}
         </div>
+        <div className="caja-daily-total"><span>Total gastos del dia</span><strong>{moneda(resumen.totalGastos)}</strong></div>
 
-        <div className="payment-summary-grid">
-          <div>
-            <span>Efectivo ventas</span>
-            <strong>{moneda(resumen.efectivo)}</strong>
-            <small>Gastos efectivo: {moneda(resumen.gastosEfectivo)}</small>
-          </div>
-          <div>
-            <span>Efectivo en caja</span>
-            <strong>{moneda(resumen.efectivoNeto)}</strong>
-            <small>Despues de gastos</small>
-          </div>
-          <div>
-            <span>Transferencias ventas</span>
-            <strong>{moneda(resumen.transferencia)}</strong>
-            <small>Gastos transferencia: {moneda(resumen.gastosTransferencia)}</small>
-          </div>
-          <div>
-            <span>Transferencias netas</span>
-            <strong>{moneda(resumen.transferenciaNeta)}</strong>
-            <small>Despues de gastos</small>
-          </div>
-          <div>
-            <span>Tarjeta ventas</span>
-            <strong>{moneda(resumen.tarjeta)}</strong>
-            <small>Comision datáfono: {moneda(resumen.comisionTarjeta)}</small>
-          </div>
-          <div>
-            <span>Tarjeta neta</span>
-            <strong>{moneda(resumen.tarjetaNeta)}</strong>
-            <small>Despues de descontar 4,89%</small>
-          </div>
-          <div>
-            <span>Total gastos</span>
-            <strong>{moneda(resumen.totalGastos)}</strong>
-            <small>Efectivo y transferencia</small>
-          </div>
-        </div>
-      </div>
-
-      <div className="panel-card no-print">
-        <h2>{editandoGastoId ? "Editar gasto" : "Registrar gasto"}</h2>
+      <div className="caja-workspace">
+      <aside className="caja-editor">
+        <h3>{editandoGastoId ? "Editar gasto" : "Registrar gasto"}</h3>
 
         <form className="admin-form caja-form" onSubmit={guardarGasto}>
           <fieldset disabled={guardandoGasto}>
@@ -346,65 +323,62 @@ export default function CierreCajaAdmin() {
           </div>
           </fieldset>
         </form>
-      </div>
+      </aside>
 
-      <div className="panel-card no-print">
-        <h2>Gastos del dia</h2>
+      <section className="caja-ledger">
+        <div className="caja-section-heading"><h3>Gastos del dia</h3><span>{(data.gastos || []).length} {(data.gastos || []).length === 1 ? "registro" : "registros"}</span></div>
         <div className="table-wrapper">
           <table className="admin-table">
             <thead>
               <tr>
                 <th>Descripcion</th>
-                <th>Monto</th>
-                <th>Sale de</th>
                 <th>Etiqueta</th>
-                <th>Comentarios</th>
-                <th>Reintegro</th>
+                <th>Monto / salida</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {(data.gastos || []).map((item) => (
                 <tr key={item.id}>
-                  <td>{item.descripcion}</td>
-                  <td>{moneda(item.monto)}</td>
-                  <td>{item.metodo_salida}</td>
-                  <td>{item.etiqueta_nombre || "Sin etiqueta"}</td>
-                  <td className="caja-comentario">{item.comentario || "-"}</td>
-                  <td>{item.reintegrado ? "Reintegrado" : "Sin reintegrar"}</td>
-                  <td>
-                    <button className="mini-button" onClick={() => editarGasto(item)}>
-                      Editar
+                  <td className="caja-description"><strong>{item.descripcion}</strong>{item.comentario && <small>{item.comentario}</small>}</td>
+                  <td data-label="Etiqueta"><span className="caja-tag">{item.etiqueta_nombre || "Sin etiqueta"}</span><small className={item.reintegrado ? "caja-status returned" : "caja-status"}>{item.reintegrado ? "Reintegrado" : "Sin reintegrar"}</small></td>
+                  <td data-label="Monto" className="caja-amount"><strong>{moneda(item.monto)}</strong><small>{item.metodo_salida === "TRANSFERENCIA" ? "Transferencia" : "Efectivo"}</small></td>
+                  <td><div className="caja-row-actions">
+                    <button type="button" className="mini-button" aria-label="Editar gasto" title="Editar gasto" onClick={() => editarGasto(item)}>
+                      <Pencil size={16} />
                     </button>
-                    <button className="mini-button" onClick={() => imprimirGasto(item)}>
-                      Imprimir
+                    <button type="button" className="mini-button" aria-label="Imprimir recibo" title="Imprimir recibo" onClick={() => imprimirGasto(item)}>
+                      <Printer size={16} />
                     </button>
-                    <button className="mini-button danger" onClick={() => eliminarGasto(item.id)}>
-                      Eliminar
+                    <button type="button" className="mini-button danger" aria-label="Eliminar gasto" title="Eliminar gasto" onClick={() => eliminarGasto(item.id)}>
+                      <Trash2 size={16} />
                     </button>
-                  </td>
+                  </div></td>
                 </tr>
               ))}
               {(data.gastos || []).length === 0 && (
                 <tr>
-                  <td colSpan="7">No hay gastos registrados.</td>
+                  <td colSpan="4" className="caja-empty">No hay gastos registrados.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+      </section>
+      </div>
       </div>
 
+      <div id="caja-historial" role="tabpanel" aria-labelledby="caja-tab-historial" hidden={pestana !== "historial"} className="no-print">
       <HistorialGastosCaja etiquetas={etiquetas} revision={revisionHistorial}
         onEditar={editarGasto} onEliminar={eliminarGasto} onImprimir={imprimirGasto} />
+      </div>
 
-      <details className="caja-general no-print">
-        <summary><Archive size={18} /> Caja general</summary>
+      <div id="caja-general" role="tabpanel" aria-labelledby="caja-tab-general" hidden={pestana !== "general"} className="no-print">
         <HistorialGastosCaja general etiquetas={etiquetas} />
-      </details>
+      </div>
 
-      <div className="panel-card no-print">
-        <h2>Productos vendidos del dia</h2>
+      <details className="caja-products no-print" hidden={pestana !== "diario"}>
+        <summary>Productos vendidos del dia <span>{(data.productos_vendidos || []).length} {(data.productos_vendidos || []).length === 1 ? "producto" : "productos"}</span></summary>
         <div className="table-wrapper">
           <table className="admin-table">
             <thead>
@@ -430,7 +404,7 @@ export default function CierreCajaAdmin() {
             </tbody>
           </table>
         </div>
-      </div>
+      </details>
 
       {printMode === "cierre" && (
         <div className="print-receipt">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "../../api/api.js";
+import PagoMixto, { cantidadesPago, partesPago, montosValidos, ReciboPagos } from "../../components/PagoMixto.jsx";
 
 export default function VentasAdmin() {
   const [ventas, setVentas] = useState([]);
@@ -30,6 +31,8 @@ export default function VentasAdmin() {
   const [auditoria, setAuditoria] = useState([]);
   const [mensaje, setMensaje] = useState("");
   const [motivo, setMotivo] = useState("");
+  const [montosMixtos, setMontosMixtos] = useState(cantidadesPago);
+  const [efectivoRecibido, setEfectivoRecibido] = useState("");
 
   useEffect(() => {
     cargarVentas();
@@ -106,6 +109,10 @@ export default function VentasAdmin() {
       const aud = await api.get(`/ventas/${id}/auditoria`);
 
       setVentaDetalle(data.venta);
+      const partes = data.venta.pagos_desglose || [];
+      setMontosMixtos({ ...cantidadesPago(), ...Object.fromEntries(partes.map((p) => [String(p.metodo_pago_id), String(p.monto)])) });
+      const efectivo = partes.find((p) => /efectivo/i.test(p.metodo_pago));
+      setEfectivoRecibido(efectivo ? String(Number(efectivo.monto) + Number(data.venta.cambio || 0)) : "");
       setDetalles(data.detalles || []);
       setDetallesEditables(data.detalles || []);
       setConfig(data.config || null);
@@ -138,11 +145,17 @@ export default function VentasAdmin() {
       setMensaje("Debes escribir el motivo de la corrección.");
       return;
     }
+    if (ventaDetalle.pagos_desglose?.length > 1 && (!montosValidos(montosMixtos) || partesPago(montosMixtos).reduce((s, p) => s + Math.round(p.monto * 100), 0) !== Math.round(totalEditable * 100))) {
+      setMensaje("Actualiza el reparto del pago para que coincida con el total corregido.");
+      return;
+    }
 
     try {
       await api.patch(`/ventas/${ventaDetalle.id}/detalles`, {
         motivo,
         detalles: detallesEditables,
+        ...(ventaDetalle.pagos_desglose?.length > 1 ? { pagos_desglose: partesPago(montosMixtos) } : {}),
+        ...(efectivoRecibido !== "" ? { efectivo_recibido: efectivoRecibido } : {}),
       });
 
       setMensaje("Venta corregida correctamente.");
@@ -213,11 +226,10 @@ export default function VentasAdmin() {
     return acc + precioConDescuento * cantidad;
   }, 0);
 
-  const propinaEditable =
-    subtotalEditable *
-    (Number(ventaDetalle?.propina_porcentaje || 0) / 100);
+  const propinaEditable = Number((subtotalEditable *
+    (Number(ventaDetalle?.propina_porcentaje || 0) / 100)).toFixed(2));
 
-  const totalEditable = subtotalEditable + propinaEditable;
+  const totalEditable = Number((subtotalEditable + propinaEditable).toFixed(2));
 
   return (
     <div>
@@ -429,6 +441,7 @@ export default function VentasAdmin() {
           <p>
             <strong>Cambio:</strong> {moneda(ventaDetalle.cambio)}
           </p>
+          {(ventaDetalle.pagos_desglose || []).map((p) => <p key={p.metodo_pago_id}><strong>{p.metodo_pago}:</strong> {moneda(p.monto)}</p>)}
 
           <form className="admin-form" onSubmit={guardarCorreccionProductos}>
             <h3>Corregir productos vendidos</h3>
@@ -511,6 +524,11 @@ export default function VentasAdmin() {
                 <strong>{moneda(ventaDetalle.cambio)}</strong>
               </div>
             </div>
+
+            {ventaDetalle.pagos_desglose?.length > 1 && <PagoMixto montos={montosMixtos} onChange={setMontosMixtos} total={totalEditable} />}
+            {efectivoRecibido !== "" && <label>Efectivo recibido
+              <input type="number" min="0" step="0.01" required value={efectivoRecibido} onChange={(e) => setEfectivoRecibido(e.target.value)} />
+            </label>}
 
             <label>
               Motivo de corrección
@@ -623,15 +641,16 @@ export default function VentasAdmin() {
             <strong>{moneda(ventaDetalle.total)}</strong>
           </div>
 
-          <div className="print-line">
+          {ventaDetalle.pagos_desglose?.length > 0 && <ReciboPagos pago={ventaDetalle} />}
+          {!ventaDetalle.pagos_desglose?.length && <div className="print-line">
             <span>Recibido</span>
             <span>{moneda(ventaDetalle.monto_recibido)}</span>
-          </div>
+          </div>}
 
-          <div className="print-line">
+          {!ventaDetalle.pagos_desglose?.length && <div className="print-line">
             <span>Cambio</span>
             <span>{moneda(ventaDetalle.cambio)}</span>
-          </div>
+          </div>}
 
           <div className="print-divider" />
 

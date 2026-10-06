@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pencil, Printer, Trash2 } from "lucide-react";
+import { Pencil, Printer, Trash2, Plus, X } from "lucide-react";
 import api from "../api/api.js";
 
 const moneda = (valor) => `$${Number(valor || 0).toLocaleString("es-CO")}`;
@@ -19,6 +19,7 @@ export default function HistorialGastosCaja({ general = false, etiquetas, revisi
   const [editandoId, setEditandoId] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const [revisionGeneral, setRevisionGeneral] = useState(0);
+  const [formAbierto, setFormAbierto] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,6 +52,7 @@ export default function HistorialGastosCaja({ general = false, etiquetas, revisi
       setRevisionGeneral((value) => value + 1);
       setForm(formVacio());
       setEditandoId(null);
+      setFormAbierto(false);
       setMensaje(editandoId ? "Registro actualizado." : "Gasto de caja general registrado.");
     } catch (error) {
       setMensaje(error.response?.data?.message || "No se pudo guardar el registro.");
@@ -60,6 +62,7 @@ export default function HistorialGastosCaja({ general = false, etiquetas, revisi
   }
 
   function editarGeneral(item) {
+    setFormAbierto(true);
     setEditandoId(item.id);
     setForm({
       fecha: item.fecha,
@@ -88,12 +91,16 @@ export default function HistorialGastosCaja({ general = false, etiquetas, revisi
 
   return (
     <section className="caja-history no-print" aria-label={general ? "Historial de caja general" : "Historial mensual de gastos"}>
-      <h2>{general ? "Gastos de caja general" : "Historial mensual de gastos"}</h2>
-      {general && <p className="caja-general-notice">Registro independiente del cierre diario y de las utilidades netas.</p>}
+      <div className="caja-section-heading"><h3>{general ? "Gastos de caja general" : "Historial mensual de gastos"}</h3>
+        {general && <button type="button" className="btn btn-outline" aria-expanded={formAbierto} onClick={() => setFormAbierto(!formAbierto)}>
+          {formAbierto ? <X size={16} /> : <Plus size={16} />}{formAbierto ? "Cerrar" : "Nuevo gasto"}
+        </button>}
+      </div>
+      {general && <p className="caja-general-notice">Caja independiente: no afecta el cierre diario ni las utilidades netas.</p>}
       {mensaje && <div className="info-message" role="status">{mensaje}</div>}
 
-      {general && (
-        <form className="admin-form caja-form" onSubmit={guardarGeneral}>
+      {general && formAbierto && (
+        <form className="admin-form caja-form caja-general-form" onSubmit={guardarGeneral}>
           <h3>{editandoId ? "Editar registro" : "Registrar gasto de caja general"}</h3>
           <fieldset disabled={guardando}>
             <div className="form-grid">
@@ -127,6 +134,7 @@ export default function HistorialGastosCaja({ general = false, etiquetas, revisi
               {editandoId && <button className="btn btn-outline" type="button" onClick={() => {
                 setEditandoId(null);
                 setForm(formVacio());
+                setFormAbierto(false);
               }}>Cancelar</button>}
             </div>
           </fieldset>
@@ -165,19 +173,17 @@ export default function HistorialGastosCaja({ general = false, etiquetas, revisi
         <div className="table-wrapper">
           <table className="admin-table caja-history-table" aria-busy={cargando}>
             <thead><tr>
-              <th>Fecha</th><th>Descripcion</th><th>Etiqueta</th><th>Monto</th><th>Sale de</th>
-              {!general && <th>Reintegro</th>}<th>Comentarios</th><th>Acciones</th>
+              <th>Fecha</th><th>Descripcion</th><th>Etiqueta</th><th>Monto / salida</th><th>Acciones</th>
             </tr></thead>
             <tbody>
-              {cargando && <tr><td colSpan={general ? 7 : 8}>Cargando historial...</td></tr>}
+              {cargando && <tr><td colSpan="5" className="caja-empty">Cargando historial...</td></tr>}
               {!cargando && historial.gastos.map((item) => <tr key={item.id}>
-                <td className="caja-date">{item.fecha.split("-").reverse().join("/")}</td>
-                <td className="caja-comentario">{item.descripcion}</td>
-                <td>{item.etiqueta_nombre || "Sin etiqueta"}</td>
-                <td className="caja-amount">{moneda(item.monto)}</td>
-                <td>{item.metodo_salida === "TRANSFERENCIA" ? "Transferencia" : "Efectivo"}</td>
-                {!general && <td>{item.reintegrado ? "Reintegrado" : "Sin reintegrar"}</td>}
-                <td className="caja-comentario">{item.comentario || "-"}</td>
+                <td className="caja-date" data-label="Fecha">{item.fecha.split("-").reverse().join("/")}</td>
+                <td className="caja-description"><strong>{item.descripcion}</strong>{item.comentario && <small>{item.comentario}</small>}</td>
+                <td data-label="Etiqueta"><span className="caja-tag">{item.etiqueta_nombre || "Sin etiqueta"}</span>
+                  {!general && <small className={item.reintegrado ? "caja-status returned" : "caja-status"}>{item.reintegrado ? "Reintegrado" : "Sin reintegrar"}</small>}
+                </td>
+                <td className="caja-amount" data-label="Monto"><strong>{moneda(item.monto)}</strong><small>{item.metodo_salida === "TRANSFERENCIA" ? "Transferencia" : "Efectivo"}</small></td>
                 <td><div className="caja-row-actions">
                   <button type="button" className="mini-button" aria-label="Editar gasto" title="Editar gasto"
                     onClick={() => general ? editarGeneral(item) : onEditar(item)}><Pencil size={16} /></button>
@@ -187,7 +193,7 @@ export default function HistorialGastosCaja({ general = false, etiquetas, revisi
                     onClick={() => general ? eliminarGeneral(item) : onEliminar(item.id)}><Trash2 size={16} /></button>
                 </div></td>
               </tr>)}
-              {!cargando && !historial.gastos.length && <tr><td colSpan={general ? 7 : 8}>No hay gastos para estos filtros.</td></tr>}
+              {!cargando && !historial.gastos.length && <tr><td colSpan="5" className="caja-empty">No hay gastos para estos filtros.</td></tr>}
             </tbody>
           </table>
         </div>

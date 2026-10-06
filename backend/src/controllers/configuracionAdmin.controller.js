@@ -582,12 +582,11 @@ export async function resumenUtilidad(req, res) {
       ),
       pool.query(
         `
-        SELECT COALESCE(SUM(v.total), 0) * 0.0489 AS total
+        SELECT COALESCE(SUM(vp.monto), 0) * 0.0489 AS total
         FROM ventas v
-        INNER JOIN pagos p ON p.id = v.pago_id
-        INNER JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+        INNER JOIN ventas_pagos_desglose vp ON vp.venta_id = v.id
         WHERE COALESCE(v.estado, 'VALIDA') != 'ANULADA'
-        AND LOWER(mp.nombre) LIKE '%tarjeta%'
+        AND LOWER(vp.metodo_pago) LIKE '%tarjeta%'
         AND v.fecha_venta >= $1::date
         AND v.fecha_venta < $1::date + interval '1 month'
         `,

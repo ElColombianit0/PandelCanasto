@@ -79,17 +79,16 @@ export async function resumenDashboard(req, res) {
     const ventasPorMetodoPago = await pool.query(
       `
       SELECT
-        mp.nombre AS metodo_pago,
-        COUNT(v.id) AS cantidad,
-        COALESCE(SUM(v.total), 0) AS total
+        vp.metodo_pago,
+        COUNT(DISTINCT v.id) AS cantidad,
+        COALESCE(SUM(vp.monto), 0) AS total
       FROM ventas v
       INNER JOIN usuarios u ON u.id = v.usuario_id
-      INNER JOIN pagos p ON p.id = v.pago_id
-      INNER JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+      INNER JOIN ventas_pagos_desglose vp ON vp.venta_id = v.id
       WHERE COALESCE(v.estado, 'VALIDA') != 'ANULADA'
       ${filtro}
       AND v.fecha_venta::date = (timezone('America/Bogota', now()))::date
-      GROUP BY mp.nombre
+      GROUP BY vp.metodo_pago
       ORDER BY total DESC
       `,
       valores,

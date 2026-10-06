@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../../api/api.js";
 import { useAuth } from "../../contexts/AuthContext.jsx";
+import PagoMixto, { cantidadesPago, partesPago, montosValidos, ReciboPagos } from "../../components/PagoMixto.jsx";
 
 export default function VentasEmpleado() {
   const { usuario } = useAuth();
@@ -17,6 +18,8 @@ export default function VentasEmpleado() {
   const [mesaId, setMesaId] = useState("");
   const [metodoPagoId, setMetodoPagoId] = useState("1");
   const [montoRecibido, setMontoRecibido] = useState("");
+  const [montosMixtos, setMontosMixtos] = useState(cantidadesPago);
+  const [cobrando, setCobrando] = useState(false);
   const [propinaPorcentaje, setPropinaPorcentaje] = useState(0);
   const [facturaElectronica, setFacturaElectronica] = useState(false);
   const [busqueda, setBusqueda] = useState("");
@@ -73,6 +76,7 @@ export default function VentasEmpleado() {
       setDetalles([]);
       setPropinaPorcentaje(0);
       setMontoRecibido("");
+      setMontosMixtos(cantidadesPago());
       setUltimaFactura(null);
       cargarInicial();
     } catch (error) {
@@ -85,6 +89,11 @@ export default function VentasEmpleado() {
 
     try {
       const { data } = await api.get(`/pedidos/${pedido.id}`);
+
+      if (pedidoActual?.id !== data.pedido.id) {
+        setMontoRecibido("");
+        setMontosMixtos(cantidadesPago());
+      }
 
       setPedidoActual(data.pedido);
       setDetalles(data.detalles || []);
@@ -151,6 +160,7 @@ export default function VentasEmpleado() {
   }
 
   async function cobrarPedido() {
+    if (cobrando) return;
     setMensaje("");
 
     if (!pedidoActual) {
@@ -160,21 +170,29 @@ export default function VentasEmpleado() {
 
     const recibido = Number(montoRecibido);
 
-    if (esPagoEfectivo && (montoRecibido === "" || !Number.isFinite(recibido))) {
+    const partes = partesPago(montosMixtos);
+    if (esMixto && (!montosValidos(montosMixtos) || partes.length < 2 || partes.reduce((s, p) => s + Math.round(p.monto * 100), 0) !== Math.round(total * 100))) {
+      setMensaje("Reparte el total entre al menos dos medios de pago. La suma debe coincidir con el total.");
+      return;
+    }
+
+    if (requiereEfectivo && (montoRecibido === "" || !Number.isFinite(recibido))) {
       setMensaje("Ingresa el dinero recibido antes de registrar la venta.");
       return;
     }
 
-    if (esPagoEfectivo && recibido < total) {
-      setMensaje("El dinero recibido no puede ser menor al total.");
+    if (requiereEfectivo && recibido < parteEfectivo) {
+      setMensaje("El dinero recibido no puede ser menor a la parte en efectivo.");
       return;
     }
 
+    setCobrando(true);
     try {
       const { data } = await api.post("/pedidos/cobrar", {
         pedido_id: pedidoActual.id,
         metodo_pago_id: metodoPagoId,
-        monto_recibido: esPagoEfectivo ? montoRecibido : total,
+        monto_recibido: requiereEfectivo ? montoRecibido : undefined,
+        ...(esMixto ? { pagos_desglose: partes } : {}),
         factura_electronica: facturaElectronica,
       });
 
@@ -199,10 +217,13 @@ export default function VentasEmpleado() {
       setPedidoActual(null);
       setDetalles([]);
       setMontoRecibido("");
+      setMontosMixtos(cantidadesPago());
       setPropinaPorcentaje(0);
       cargarInicial();
     } catch (error) {
       setMensaje(error.response?.data?.message || "No se pudo cobrar.");
+    } finally {
+      setCobrando(false);
     }
   }
 
@@ -223,14 +244,18 @@ export default function VentasEmpleado() {
     0
   );
 
-  const propinaValor = subtotal * (Number(propinaPorcentaje || 0) / 100);
-  const total = subtotal + propinaValor;
+  const propinaValor = Number((subtotal * (Number(propinaPorcentaje || 0) / 100)).toFixed(2));
+  const total = Number((subtotal + propinaValor).toFixed(2));
   const esPagoEfectivo = metodoPagoId === "1";
-  const cambio = Number(montoRecibido || 0) - total;
+  const esMixto = metodoPagoId === "MIXTO";
+  const parteEfectivo = esMixto ? Number(montosMixtos["1"] || 0) : esPagoEfectivo ? total : 0;
+  const requiereEfectivo = esPagoEfectivo || (esMixto && parteEfectivo > 0);
+  const cambio = Number(montoRecibido || 0) - parteEfectivo;
   const metodosPago = [
     { id: "1", nombre: "Efectivo" },
     { id: "2", nombre: "Tarjeta" },
     { id: "3", nombre: "Transferencia" },
+    { id: "MIXTO", nombre: "Mixto" },
   ];
 
   return (
@@ -436,16 +461,18 @@ export default function VentasEmpleado() {
                   </div>
                 </div>
 
-                {esPagoEfectivo && (
+                {esMixto && <PagoMixto montos={montosMixtos} onChange={setMontosMixtos} total={total} />}
+
+                {requiereEfectivo && (
                   <label>
-                    Dinero recibido
+                    {esMixto ? "Efectivo recibido" : "Dinero recibido"}
                     <input
                       type="number"
                       min="0"
                       step="0.01"
                       value={montoRecibido}
                       onChange={(e) => setMontoRecibido(e.target.value)}
-                      placeholder={String(Math.ceil(total))}
+                      placeholder={String(Math.ceil(parteEfectivo))}
                       required
                     />
                   </label>
@@ -465,7 +492,7 @@ export default function VentasEmpleado() {
                   <strong>${total.toLocaleString("es-CO")}</strong>
                 </div>
 
-                {esPagoEfectivo && (
+                {requiereEfectivo && (
                   <div>
                     <span>Cambio</span>
                     <strong>
@@ -475,8 +502,8 @@ export default function VentasEmpleado() {
                 )}
               </div>
 
-              <button className="btn btn-primary btn-full" onClick={cobrarPedido}>
-                Cobrar e imprimir
+              <button className="btn btn-primary btn-full" onClick={cobrarPedido} disabled={cobrando || !detalles.length}>
+                {cobrando ? "Registrando..." : "Cobrar e imprimir"}
               </button>
             </>
           )}
@@ -570,7 +597,7 @@ function FacturaImprimible({ facturaData }) {
         <strong>${Number(venta.total).toLocaleString("es-CO")}</strong>
       </div>
 
-      {esEfectivo ? (
+      {pago.pagos_desglose?.length ? <ReciboPagos pago={pago} /> : esEfectivo ? (
         <>
           <div className="print-line">
             <span>Recibido</span>

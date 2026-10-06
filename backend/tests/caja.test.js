@@ -42,8 +42,8 @@ before(async () => {
     INSERT INTO usuarios VALUES (1, 'Admin', 'ADMIN', true);
     CREATE TABLE inventario (id integer PRIMARY KEY, cantidad_actual numeric);
     INSERT INTO inventario VALUES (1, 20);
-    CREATE TABLE metodos_pago (id integer PRIMARY KEY, nombre text);
-    INSERT INTO metodos_pago VALUES (1, 'Efectivo');
+    CREATE TABLE metodos_pago (id serial PRIMARY KEY, nombre text, activo boolean DEFAULT true);
+    INSERT INTO metodos_pago (nombre) VALUES ('Efectivo');
     CREATE TABLE pagos (id integer PRIMARY KEY, metodo_pago_id integer);
     INSERT INTO pagos VALUES (1, 1);
     CREATE TABLE productos (id integer PRIMARY KEY, nombre text);
@@ -57,6 +57,7 @@ before(async () => {
     CREATE TABLE gastos_operativos (monto numeric, tipo text, activo boolean, periodo_mes date, recurrente boolean);
     CREATE TABLE horas_extra_empleados (total numeric, fecha date);
   `);
+  await db.exec(await readFile(new URL("../sql/20261006_pagos_mixtos.sql", import.meta.url), "utf8"));
   await asegurarTablasOperaciones();
   await db.exec("INSERT INTO caja_gastos (fecha, descripcion, monto, usuario_id) VALUES ('2026-10-06', 'Gasto anterior', 1000, 1)");
 });

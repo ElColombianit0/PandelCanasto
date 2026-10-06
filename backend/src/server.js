@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import app from "./app.js";
 import { probarConexionDB } from "./config/db.js";
 import { asegurarEsquemaDB } from "./config/schema.js";
+import { asegurarEsquemaPagos } from "./utils/pagos.js";
 
 dotenv.config();
 
@@ -11,6 +12,7 @@ async function main() {
   try {
     await probarConexionDB();
     await asegurarEsquemaDB();
+    await asegurarEsquemaPagos();
     console.log("PostgreSQL conectado correctamente");
 
     app.listen(PORT, "0.0.0.0", () => {

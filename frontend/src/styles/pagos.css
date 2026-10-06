@@ -1,0 +1,13 @@
+.payment-method-options:has(input[value="MIXTO"]) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.totals-box .payment-method-options:has(input[value="MIXTO"]) .payment-method-option { flex-direction: column; gap: 5px; padding: 8px 4px; min-height: 57px; font-size: 13px; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.totals-box > .mixed-payment-fields, .mixed-payment-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px 0; }
+.mixed-payment-fields label { display: grid; gap: 6px; min-width: 0; font-size: 13px; }
+.mixed-payment-fields label:last-of-type { grid-column: 1 / -1; }
+.money-input { display: flex; align-items: center; position: relative; }
+.money-input > span { position: absolute; left: 12px; color: #677476; pointer-events: none; }
+.mixed-payment-fields .money-input input { width: 100%; min-width: 0; padding-left: 27px; height: 40px; border-radius: 6px; }
+.mixed-payment-balance { display: flex; justify-content: space-between; gap: 12px; grid-column: 1 / -1; font-size: 13px; color: #a34416; padding-top: 6px; }
+.mixed-payment-balance.balanced { color: #18755c; }
+.mixed-payment-balance strong { white-space: nowrap; }
+@media (max-width: 400px) { .totals-box .payment-method-options:has(input[value="MIXTO"]) .payment-method-option { font-size: 12px; } }
+@media print { .mixed-payment-fields { display: none; } }
